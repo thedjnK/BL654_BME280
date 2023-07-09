@@ -206,9 +206,10 @@
 #define TIMER_BLE_NOTIFICATIONS_TIMEOUT_MS      30000             // Sensor data is updated every 30 seconds if notifications are enabled
 #define TIMER_BLE_READINGS_TIMEOUT_MS           300000            // Sensor data is updated every 5 minutes if notifications are not enabled
 
-#define BATTERY_VOLTAGE_NEW_MV                  3200              //
-#define BATTERY_VOLTAGE_BAD_MV                  2000              //
-#define TIMER_BATTERY_READINGS_TIMEOUT_MS       300000 //
+#define DIODE_VOLTAGE_DROP_MV                   200               // Voltage drop across diode
+#define BATTERY_VOLTAGE_NEW_MV                  3200              // Voltage of a brand new battery (excluding diode drop)
+#define BATTERY_VOLTAGE_BAD_MV                  2200              // Voltage of a dead battery (excluding diode drop)
+#define TIMER_BATTERY_READINGS_TIMEOUT_MS       300000            // Battery data is updated every 5 minutes if notifications are not enabled
 
 //******************************************************************************
 // Include other files
@@ -824,8 +825,8 @@ endfunc 1
 function HandlerTimer5()
     dim nVoltageVal, nBatteryVal, sValBatteryL$
 
-    // Get temperature value and humidity values to calculate Dew Point
-    nVoltageVal = ReadPwrSupplyMv()
+    // Get power supply voltage and account for diode
+    nVoltageVal = ReadPwrSupplyMv() + DIODE_VOLTAGE_DROP_MV
 
     if (nVoltageVal >= BATTERY_VOLTAGE_NEW_MV) then
         nBatteryVal = 100
