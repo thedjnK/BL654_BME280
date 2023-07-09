@@ -22,8 +22,6 @@
 //
 //******************************************************************************
 
-//TODO: add battery reporting
-
 //******************************************************************************
 // Definitions
 //******************************************************************************
@@ -34,7 +32,7 @@
 #define APPEARANCE                              512                   // Generic Tag
 #define CONNECTION_INTERVAL_MIN                 30000                 // 30ms
 #define CONNECTION_INTERVAL_MAX                 500000                // 500ms
-#define SUPERVISION_TIMEOUT                     2000000               // 2s
+#define SUPERVISION_TIMEOUT                     6000000               // 6s
 #define SLAVE_LATENCY                           4                     // Set slave latency to 4
 
 // Device information service defines
@@ -203,9 +201,14 @@
 #define TIMER_PRESSURE_NOTIFICATIONS            2
 #define TIMER_DEWPOINT_NOTIFICATIONS            3
 #define TIMER_ALL_SENSOR_READINGS               4
+#define TIMER_BATTERY_READINGS                  5
 
 #define TIMER_BLE_NOTIFICATIONS_TIMEOUT_MS      30000             // Sensor data is updated every 30 seconds if notifications are enabled
 #define TIMER_BLE_READINGS_TIMEOUT_MS           300000            // Sensor data is updated every 5 minutes if notifications are not enabled
+
+#define BATTERY_VOLTAGE_NEW_MV                  3200              //
+#define BATTERY_VOLTAGE_BAD_MV                  2000              //
+#define TIMER_BATTERY_READINGS_TIMEOUT_MS       300000 //
 
 //******************************************************************************
 // Include other files
@@ -226,6 +229,7 @@ dim hPressChar        // Pressure Characteristic Handle, this is used when commi
 dim hDewChar          // DewPoint Characteristic Handle, this is used when committing characteristic and updating values
 dim hBatterySvc       // Battery service handle, this is used when adding characteristics
 dim hBatteryLevelChar // Battery level characteristic handle, this is used when committing characteristic
+dim hBatteryNotify    // Set if battery level notifications are enabled
 
 // BME280 Sensor Global Variables
 dim I2Ch     : I2Ch = 0             // I2C Handle
@@ -815,6 +819,37 @@ function CharValueUpdate()
 endfunc 1
 
 //------------------------------------------------------------------------------
+// This event handler is triggered when Timer 5 expires (Battery level)
+//------------------------------------------------------------------------------
+function HandlerTimer5()
+    dim nVoltageVal, nBatteryVal, sValBatteryL$
+
+    // Get temperature value and humidity values to calculate Dew Point
+    nVoltageVal = ReadPwrSupplyMv()
+
+    if (nVoltageVal >= BATTERY_VOLTAGE_NEW_MV) then
+        nBatteryVal = 100
+    elseif (nVoltageVal <= BATTERY_VOLTAGE_BAD_MV) then
+        nBatteryVal = 0
+    else
+        nBatteryVal = ((nVoltageVal - BATTERY_VOLTAGE_BAD_MV) * 100) / (BATTERY_VOLTAGE_NEW_MV - BATTERY_VOLTAGE_BAD_MV)
+    endif
+
+    // Encode the data in a format that can be sent out as notifications
+    rc = bleencode8(sValBatteryL$, nBatteryVal, 0)
+    #cmpif 0x01 : AssertRC(1069)
+
+    // Write and send out notification (if enabled)
+    rc = BleCharValueWrite(hBatteryLevelChar, sValBatteryL$)
+    #cmpif 0x01 : AssertRC(1073)
+
+    if (hBatteryNotify == 1) then
+        rc = BleCharValueNotify(hBatteryLevelChar, sValBatteryL$)
+        #cmpif 0x01 : AssertRC(1073)
+    endif
+endfunc 1
+
+//------------------------------------------------------------------------------
 // OnConnection
 //------------------------------------------------------------------------------
 sub OnConnect(nCtx)
@@ -822,6 +857,11 @@ sub OnConnect(nCtx)
     // Start a timer to regularly update characteristics with values
     rc = CharValueUpdate()
     TimerStart(TIMER_ALL_SENSOR_READINGS, TIMER_BLE_READINGS_TIMEOUT_MS, TIMER_MODE_RECURRING)
+
+    // Perform a read of the battery level and enable the timer
+    hBatteryNotify = 0
+    rc = HandlerTimer5()
+    TimerStart(TIMER_BATTERY_READINGS, TIMER_BATTERY_READINGS_TIMEOUT_MS, TIMER_MODE_RECURRING)
 endsub
 
 //------------------------------------------------------------------------------
@@ -837,6 +877,7 @@ sub OnDisconnect(nCtx)
     TimerCancel(TIMER_PRESSURE_NOTIFICATIONS)
     TimerCancel(TIMER_DEWPOINT_NOTIFICATIONS)
     TimerCancel(TIMER_ALL_SENSOR_READINGS)
+    TimerCancel(TIMER_BATTERY_READINGS)
 endsub
 
 //------------------------------------------------------------------------------
@@ -1008,6 +1049,21 @@ function HandlerCharCccd(hChar, nVal)
             #cmpif 0x00000001 : DebugPrint("\n ---- Notifications disabled for Dew Point characteristic")
             TimerCancel(TIMER_DEWPOINT_NOTIFICATIONS)
         endif
+
+    elseif (hChar == hBatteryLevelChar) then
+        if (nVal == BLE_GATT_CCC_NOTIFY) then
+            // Start a timer for sending out battery level readings (faster)
+            #cmpif 0x00000001 : DebugPrint("\n ++++ Notifications enabled for battery level characteristic")
+            TimerCancel(TIMER_BATTERY_READINGS)
+            hBatteryNotify = 1
+            TimerStart(TIMER_BATTERY_READINGS, TIMER_BATTERY_READINGS_TIMEOUT_MS, TIMER_MODE_RECURRING)
+        elseif (nVal == BLE_GATT_CCC_DISABLED) then
+            // Start a timer for reading battery level (slower)
+            #cmpif 0x00000001 : DebugPrint("\n ---- Notifications disabled for battery level characteristic")
+            TimerCancel(TIMER_BATTERY_READINGS)
+            hBatteryNotify = 0
+            TimerStart(TIMER_BATTERY_READINGS, TIMER_BATTERY_READINGS_TIMEOUT_MS, TIMER_MODE_RECURRING)
+        endif
     endif
 endfunc 1
 
@@ -1099,7 +1155,7 @@ endfunc 1
 // This event handler is triggered when Timer 3 expires (Dew Point)
 //------------------------------------------------------------------------------
 function HandlerTimer3()
-    dim nTempVal, nHumVal, nDewPointVal, sValDewP$, sMsg$
+    dim nTempVal, nHumVal, nDewPointVal, sValDewP$
 
     // Open I2C so that we can read data from the sensor
     rc = I2COpen(BME280_I2C_FREQUENCY, 0, I2Ch)
@@ -1158,6 +1214,7 @@ OnEvent EVTMR1                  call    HandlerTimer1
 OnEvent EVTMR2                  call    HandlerTimer2
 OnEvent EVTMR3                  call    HandlerTimer3
 OnEvent EVTMR4                  call    CharValueUpdate
+OnEvent EVTMR5                  call    HandlerTimer5
 
 //******************************************************************************
 // Equivalent to main() in C
