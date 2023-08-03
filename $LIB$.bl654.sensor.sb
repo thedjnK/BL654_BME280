@@ -203,13 +203,13 @@
 #define TIMER_ALL_SENSOR_READINGS               4
 #define TIMER_BATTERY_READINGS                  5
 
-#define TIMER_BLE_NOTIFICATIONS_TIMEOUT_MS      30000             // Sensor data is updated every 30 seconds if notifications are enabled
+#define TIMER_BLE_NOTIFICATIONS_TIMEOUT_MS      150000            // Sensor data is updated every 2.5 seconds if notifications are enabled
 #define TIMER_BLE_READINGS_TIMEOUT_MS           300000            // Sensor data is updated every 5 minutes if notifications are not enabled
 
 #define DIODE_VOLTAGE_DROP_MV                   200               // Voltage drop across diode
 #define BATTERY_VOLTAGE_NEW_MV                  3200              // Voltage of a brand new battery (excluding diode drop)
 #define BATTERY_VOLTAGE_BAD_MV                  2200              // Voltage of a dead battery (excluding diode drop)
-#define TIMER_BATTERY_READINGS_TIMEOUT_MS       300000            // Battery data is updated every 5 minutes if notifications are not enabled
+#define TIMER_BATTERY_READINGS_TIMEOUT_MS       150000            // Battery data is updated every 2.5 minutes
 
 //******************************************************************************
 // Include other files
